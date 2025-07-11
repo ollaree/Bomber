@@ -4,17 +4,27 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const app = express();
-// Serve the graphics folder and the main index.html file
-// This setup is correct for serving your assets.
-app.use('/graphics', express.static(path.join(__dirname, 'graphics')));
-app.use(express.static(__dirname)); // Serve other static files like index.html from root
+const server = http.createServer(app);
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+// --- Server Setup ---
+// Serve static files from the 'public' directory (or root)
+// This will serve index.html, and the /graphics folder will be accessible
+app.use(express.static(path.join(__dirname)));
+
+// --- WebSocket Server Initialization (Robust Method) ---
+// Initialize a WebSocket server without attaching it to the HTTP server directly.
+const wss = new WebSocketServer({ noServer: true });
+
+// Listen for the 'upgrade' event on the HTTP server.
+// This is when a client tries to switch from HTTP to WebSocket.
+server.on('upgrade', (request, socket, head) => {
+  // Use the wss.handleUpgrade method to complete the handshake.
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    // If the handshake is successful, emit the 'connection' event.
+    wss.emit('connection', ws, request);
+  });
 });
 
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
 
 // --- Game Configuration ---
 const TILE_SIZE = 48;
@@ -97,7 +107,6 @@ function checkCollision(game, player, x, y) {
     const pWidth = TILE_SIZE * 0.7;
     const pHeight = TILE_SIZE * 0.7;
 
-    // Get the set of tiles the player is CURRENTLY occupying based on their bounding box.
     const currentOccupiedTiles = new Set();
     const currentCorners = [
         { x: player.x, y: player.y },
@@ -111,7 +120,6 @@ function checkCollision(game, player, x, y) {
         currentOccupiedTiles.add(`${col},${row}`);
     }
 
-    // Check the corners of the PROPOSED new position.
     const futureCorners = [
         { x: x, y: y },
         { x: x + pWidth, y: y },
@@ -123,27 +131,20 @@ function checkCollision(game, player, x, y) {
         const col = Math.floor(corner.x / TILE_SIZE);
         const row = Math.floor(corner.y / TILE_SIZE);
 
-        // Check for out-of-bounds.
         if (col < 0 || col >= MAP_WIDTH_TILES || row < 0 || row >= MAP_HEIGHT_TILES) return true;
         
         const tile = game.gameMap[row][col];
         
-        // Check for collision with walls or crates.
         if (tile === 1 || tile === 2) return true;
         
-        // Check for collision with bombs.
         if (tile === 3) {
-            // Allow movement if the bomb is on a tile the player is already standing on.
-            // This allows the player to move OFF the bomb tile.
             if (currentOccupiedTiles.has(`${col},${row}`)) {
                 continue;
             }
-            // Disallow movement if it's a new bomb tile the player is not currently on.
             return true;
         }
     }
     
-    // No collision detected.
     return false;
 }
 
@@ -170,8 +171,7 @@ function updateBombs(game, deltaTime) {
     game.bombs.forEach(bomb => {
         bomb.timer -= deltaTime;
         if (bomb.timer <= 0) {
-            // Explode
-            game.gameMap[bomb.row][bomb.col] = 0; // Clear map tile
+            game.gameMap[bomb.row][bomb.col] = 0;
             createExplosion(game, bomb.col, bomb.row, bomb.power);
         }
     });
@@ -196,7 +196,7 @@ function createExplosion(game, col, row, power) {
             blastCoords.push({ col: nextCol, row: nextRow, type: blastType });
             
             if (tile === 1) {
-                game.gameMap[nextRow][nextCol] = 0; // Destroy crate
+                game.gameMap[nextRow][nextCol] = 0;
                 break;
             }
         }
@@ -234,7 +234,6 @@ function checkWinCondition(game) {
     }
 }
 
-
 // --- WebSocket Connection Handling ---
 wss.on('connection', (ws) => {
     ws.on('message', (message) => {
@@ -254,7 +253,7 @@ wss.on('connection', (ws) => {
                     bombs: [],
                     explosions: [],
                     gameMap: JSON.parse(JSON.stringify(initialMapLayout)),
-                    status: 'waiting', // waiting, active, finished
+                    status: 'waiting',
                     winner: null,
                     gameLoopInterval: null,
                     lastUpdateTime: Date.now()
@@ -270,7 +269,6 @@ wss.on('connection', (ws) => {
                     ws.playerNum = 2;
                     gameToJoin.player2 = ws;
                     
-                    // Initialize players
                     gameToJoin.players = [
                         { id: 1, x: 1 * TILE_SIZE, y: 1 * TILE_SIZE, direction: 's', isAlive: true, bombsMax: 1, bombPower: 2, keys: {} },
                         { id: 2, x: (MAP_WIDTH_TILES - 2) * TILE_SIZE, y: (MAP_HEIGHT_TILES - 2) * TILE_SIZE, direction: 's', isAlive: true, bombsMax: 1, bombPower: 2, keys: {} }
@@ -278,14 +276,12 @@ wss.on('connection', (ws) => {
                     
                     gameToJoin.status = 'active';
                     
-                    // Notify both players game has started
                     const startMessage = JSON.stringify({ type: 'gameStarted', payload: { yourId: 1 } });
                     if (gameToJoin.player1) gameToJoin.player1.send(startMessage);
                     
                     const startMessage2 = JSON.stringify({ type: 'gameStarted', payload: { yourId: 2 } });
                     if (gameToJoin.player2) gameToJoin.player2.send(startMessage2);
 
-                    // Start the game loop
                     gameToJoin.lastUpdateTime = Date.now();
                     gameToJoin.gameLoopInterval = setInterval(() => gameLoop(payload.gameId), GAME_TICK_RATE);
 
@@ -311,7 +307,7 @@ wss.on('connection', (ws) => {
 
                 const { col, row } = getGridPos(player.x, player.y);
                 if (game.gameMap[row][col] === 0) {
-                    game.gameMap[row][col] = 3; // Mark map with bomb
+                    game.gameMap[row][col] = 3;
                     game.bombs.push({
                         col, row,
                         power: player.bombPower,
@@ -327,23 +323,17 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         const game = games[ws.gameId];
         if (game) {
-            // Stop the game loop and notify other player
             clearInterval(game.gameLoopInterval);
             const otherPlayer = ws.playerNum === 1 ? game.player2 : game.player1;
             if (otherPlayer && otherPlayer.readyState === 1) {
                 otherPlayer.send(JSON.stringify({ type: 'opponentDisconnected' }));
             }
-            // Clean up game
             delete games[ws.gameId];
         }
     });
 });
 
-// *** CHANGE FOR RENDER.COM DEPLOYMENT ***
-// Use the port provided by the environment (Render) or default to 8080 for local development.
-// Listen on '0.0.0.0' to be accessible in a containerized environment.
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is listening on port ${PORT}`);
 });
-
