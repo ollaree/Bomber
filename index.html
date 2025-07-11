@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bomberman Online</title>
+    <style>
+        @font-face {
+            font-family: 'PixelFont';
+            src: url('/graphics/fonts/pixelFont.ttf') format('truetype');
+        }
+        body {
+            background-color: #1a1a1a;
+            color: #f0f0f0;
+            font-family: 'PixelFont', 'Courier New', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #game-container {
+            border: 4px solid #555;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            background-image: url('/graphics/decoration/backgroundIP.png');
+            background-size: cover;
+            padding: 20px;
+        }
+        canvas {
+            background-color: #333;
+            display: block;
+            border-radius: 5px;
+            background-image: url('/graphics/background/background.png');
+            background-repeat: repeat;
+        }
+        #info-panel {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            font-size: 24px;
+            text-transform: uppercase;
+        }
+        /* --- New Modal Styling --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.85); display: flex;
+            justify-content: center; align-items: center; z-index: 1000;
+            flex-direction: column;
+        }
+        .modal-content {
+            background-color: #1e1e1e;
+            padding: 30px 40px;
+            border: 2px solid #555;
+            text-align: center;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 450px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.7);
+        }
+        .modal-content h1 {
+            font-size: 42px;
+            color: #f0f0f0;
+            letter-spacing: 3px;
+            margin-top: 0;
+            margin-bottom: 25px;
+            text-transform: uppercase;
+            text-shadow: 3px 3px #000;
+        }
+        .modal-content p {
+            color: #aaa;
+            line-height: 1.6;
+            font-size: 18px;
+            margin-bottom: 25px;
+        }
+        .modal-input {
+            width: calc(100% - 24px);
+            padding: 12px;
+            margin-top: 15px;
+            background-color: #333;
+            border: 2px solid #555;
+            color: #f0f0f0;
+            font-family: inherit;
+            border-radius: 5px;
+            text-align: center;
+            font-size: 22px;
+            letter-spacing: 5px;
+            text-transform: uppercase;
+        }
+        .modal-input::placeholder {
+            color: #777;
+            letter-spacing: 3px;
+        }
+        .modal-btn {
+            background-color: #4CAF50;
+            color: #fff;
+            border: 2px solid #388E3C;
+            padding: 15px 25px;
+            font-family: inherit;
+            font-size: 20px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin-top: 20px;
+            width: 100%;
+            text-transform: uppercase;
+            transition: background-color 0.2s;
+            text-shadow: 2px 2px #000;
+        }
+        .modal-btn:hover {
+            background-color: #5cb85c;
+        }
+        #join-game-btn-action {
+            background-color: #3498db;
+            border-color: #2980b9;
+        }
+        #join-game-btn-action:hover {
+            background-color: #5dade2;
+        }
+        #game-code-display {
+            font-size: 36px;
+            color: #4CAF50;
+            letter-spacing: 8px;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #111;
+            border: 2px dashed #444;
+            border-radius: 5px;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <!-- Lobby and Game Modals -->
+    <div id="start-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h1>Bomberman</h1>
+            <button id="create-game-btn" class="modal-btn">Create Game</button>
+            <button id="join-game-btn" class="modal-btn" style="background-color: #3498db; border-color: #2980b9;">Join Game</button>
+        </div>
+    </div>
+    <div id="join-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h1>Join Game</h1>
+            <input id="join-code-input" class="modal-input" placeholder="CODE" maxlength="5">
+            <button id="join-game-btn-action" class="modal-btn">Join</button>
+        </div>
+    </div>
+    <div id="waiting-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h1>Waiting...</h1>
+            <p>Give this code to your friend:</p>
+            <div id="game-code-display"></div>
+        </div>
+    </div>
+     <div id="end-game-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h1 id="end-game-message"></h1>
+            <button onclick="window.location.reload()" class="modal-btn">Play Again</button>
+        </div>
+    </div>
+
+    <!-- Game Elements -->
+    <div id="game-container" class="hidden">
+        <div id="info-panel">
+            <div id="player1-status">P1: ALIVE</div>
+            <div id="game-status">Waiting...</div>
+            <div id="player2-status">P2: ALIVE</div>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        const socket = new WebSocket(`ws://${window.location.host}`);
+
+        // --- DOM Elements ---
+        const startModal = document.getElementById('start-modal');
+        const joinModal = document.getElementById('join-modal');
+        const waitingModal = document.getElementById('waiting-modal');
+        const endGameModal = document.getElementById('end-game-modal');
+        const gameContainer = document.getElementById('game-container');
+        const createGameBtn = document.getElementById('create-game-btn');
+        const joinGameBtn = document.getElementById('join-game-btn');
+        const joinGameBtnAction = document.getElementById('join-game-btn-action');
+        const joinCodeInput = document.getElementById('join-code-input');
+        const gameCodeDisplay = document.getElementById('game-code-display');
+        const p1StatusEl = document.getElementById('player1-status');
+        const p2StatusEl = document.getElementById('player2-status');
+        const gameStatusEl = document.getElementById('game-status');
+        const endGameMessageEl = document.getElementById('end-game-message');
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- Game Config ---
+        const TILE_SIZE = 48;
+        const MAP_WIDTH_TILES = 17;
+        const MAP_HEIGHT_TILES = 13;
+        canvas.width = TILE_SIZE * MAP_WIDTH_TILES;
+        canvas.height = TILE_SIZE * MAP_HEIGHT_TILES;
+        ctx.imageSmoothingEnabled = false;
+
+        // --- Asset Loading ---
+        const assets = {};
+        const assetSources = {
+            player1_n: '/graphics/player1/0.png', player1_s: '/graphics/player1/1.png', player1_e: '/graphics/player1/2.png', player1_w: '/graphics/player1/3.png',
+            player2_n: '/graphics/player2/0.png', player2_s: '/graphics/player2/1.png', player2_e: '/graphics/player2/2.png', player2_w: '/graphics/player2/3.png',
+            wall: '/graphics/walls/interiorWall.png', crate: '/graphics/obstacles/crate.png',
+            bomb1: '/graphics/bombs/bomb_1.png', bomb2: '/graphics/bombs/bomb_2.png', bomb3: '/graphics/bombs/bomb_3.png',
+            blast_center: '/graphics/blast/tile0.png', blast_s: '/graphics/blast/tile1.png', blast_n: '/graphics/blast/tile2.png', blast_e: '/graphics/blast/tile3.png', blast_w: '/graphics/blast/tile4.png', blast_v: '/graphics/blast/tile5.png', blast_h: '/graphics/blast/tile6.png',
+        };
+        let assetsLoaded = 0;
+        const totalAssets = Object.keys(assetSources).length;
+        function assetLoaded() {
+            assetsLoaded++;
+        }
+        for (const key in assetSources) {
+            assets[key] = new Image();
+            assets[key].src = assetSources[key];
+            assets[key].onload = assetLoaded;
+        }
+
+        // --- Client State ---
+        let myPlayerId = null;
+        let gameState = {};
+        let animationFrameId;
+
+        // --- WebSocket Listeners ---
+        socket.onmessage = (event) => {
+            const { type, payload } = JSON.parse(event.data);
+            switch (type) {
+                case 'gameCreated':
+                    startModal.classList.add('hidden');
+                    joinModal.classList.add('hidden');
+                    waitingModal.classList.remove('hidden');
+                    gameCodeDisplay.textContent = payload.gameId;
+                    break;
+                case 'gameStarted':
+                    myPlayerId = payload.yourId;
+                    startModal.classList.add('hidden');
+                    joinModal.classList.add('hidden');
+                    waitingModal.classList.add('hidden');
+                    gameContainer.classList.remove('hidden');
+                    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+                    animationFrameId = requestAnimationFrame(draw);
+                    break;
+                case 'gameUpdate':
+                    gameState = payload;
+                    updateUI();
+                    break;
+                case 'opponentDisconnected':
+                    showEndScreen("Opponent Disconnected!");
+                    break;
+                case 'error':
+                    alert(`Error: ${payload.message}`);
+                    break;
+            }
+        };
+
+        // --- Lobby Actions ---
+        createGameBtn.addEventListener('click', () => {
+            socket.send(JSON.stringify({ type: 'createGame' }));
+        });
+
+        joinGameBtn.addEventListener('click', () => {
+            startModal.classList.add('hidden');
+            joinModal.classList.remove('hidden');
+        });
+        
+        joinGameBtnAction.addEventListener('click', () => {
+            const gameId = joinCodeInput.value.trim().toUpperCase();
+            if (gameId.length === 5) {
+                socket.send(JSON.stringify({ type: 'joinGame', payload: { gameId } }));
+            } else {
+                alert('Invalid Game Code');
+            }
+        });
+
+        // --- Input Handling ---
+        const keys = { up: false, down: false, left: false, right: false };
+        const keyMap = { 'ArrowUp': 'up', 'KeyW': 'up', 'ArrowDown': 'down', 'KeyS': 'down', 'ArrowLeft': 'left', 'KeyA': 'left', 'ArrowRight': 'right', 'KeyD': 'right' };
+        
+        window.addEventListener('keydown', (e) => {
+            if (keyMap[e.code] !== undefined && !keys[keyMap[e.code]]) {
+                keys[keyMap[e.code]] = true;
+                sendKeyUpdate();
+            }
+            if (e.code === 'Space' || e.code === 'Enter') {
+                e.preventDefault();
+                socket.send(JSON.stringify({ type: 'placeBomb' }));
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (keyMap[e.code] !== undefined && keys[keyMap[e.code]]) {
+                keys[keyMap[e.code]] = false;
+                sendKeyUpdate();
+            }
+        });
+
+        function sendKeyUpdate() {
+            if(socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: 'keyUpdate', payload: { keys } }));
+            }
+        }
+
+        // --- UI & Drawing ---
+        function updateUI() {
+            if (!gameState.players) return;
+            const p1 = gameState.players.find(p => p.id === 1);
+            const p2 = gameState.players.find(p => p.id === 2);
+            p1StatusEl.textContent = `P1: ${p1?.isAlive ? 'ALIVE' : 'DEAD'}`;
+            p2StatusEl.textContent = `P2: ${p2?.isAlive ? 'ALIVE' : 'DEAD'}`;
+
+            if (gameState.status === 'finished') {
+                let message = "Draw!";
+                if (gameState.winner !== 'draw') {
+                    const winnerName = gameState.winner === myPlayerId ? "You" : `Player ${gameState.winner}`;
+                    message = `${winnerName} Win!`;
+                }
+                showEndScreen(message);
+                gameStatusEl.textContent = "Game Over";
+            } else {
+                 gameStatusEl.textContent = `You are P${myPlayerId}`;
+            }
+        }
+
+        function showEndScreen(message) {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            endGameMessageEl.textContent = message;
+            gameContainer.classList.add('hidden');
+            endGameModal.classList.remove('hidden');
+        }
+
+        function draw() {
+            animationFrameId = requestAnimationFrame(draw);
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (assetsLoaded < totalAssets || !gameState.gameMap) return;
+
+            for (let row = 0; row < MAP_HEIGHT_TILES; row++) {
+                for (let col = 0; col < MAP_WIDTH_TILES; col++) {
+                    const tile = gameState.gameMap[row][col];
+                    let sprite;
+                    if (tile === 1) sprite = assets.crate;
+                    if (tile === 2) sprite = assets.wall;
+                    if (sprite) ctx.drawImage(sprite, col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                }
+            }
+            
+            gameState.bombs?.forEach(bomb => {
+                const frame = Math.floor((Date.now() / 300) % 3) + 1;
+                const sprite = assets[`bomb${frame}`];
+                if (sprite) ctx.drawImage(sprite, bomb.col * TILE_SIZE, bomb.row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            });
+
+            gameState.explosions?.forEach(exp => {
+                exp.coords.forEach(coord => {
+                    const sprite = assets[`blast_${coord.type}`];
+                    if(sprite) ctx.drawImage(sprite, coord.col * TILE_SIZE, coord.row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                });
+            });
+
+            gameState.players?.forEach(player => {
+                if (!player.isAlive) return;
+                const assetKey = `player${player.id}_${player.direction}`;
+                const sprite = assets[assetKey];
+                if (sprite) {
+                    const pWidth = TILE_SIZE * 0.7;
+                    const pHeight = TILE_SIZE * 0.7;
+                    const drawX = player.x; 
+                    const drawY = player.y;
+                    ctx.drawImage(sprite, drawX, drawY, pWidth, pHeight);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+
