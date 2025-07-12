@@ -130,7 +130,6 @@
     </style>
 </head>
 <body>
-    <!-- Lobby and Game Modals -->
     <div id="start-modal" class="modal-overlay">
         <div class="modal-content">
             <h1>Bomberman</h1>
@@ -159,7 +158,6 @@
         </div>
     </div>
 
-    <!-- Game Elements -->
     <div id="game-container" class="hidden">
         <div id="info-panel">
             <div id="player1-status">P1: ALIVE</div>
@@ -170,7 +168,9 @@
     </div>
 
     <script>
-        const socket = new WebSocket(`ws://${window.location.host}`);
+        // ** FIX: Dynamically set WebSocket protocol **
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const socket = new WebSocket(`${wsProtocol}://${window.location.host}`);
 
         // --- DOM Elements ---
         const startModal = document.getElementById('start-modal');
@@ -375,4 +375,3 @@
     </script>
 </body>
 </html>
-
