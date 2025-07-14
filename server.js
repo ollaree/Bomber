@@ -6,7 +6,14 @@ const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const server = http.createServer(app);
+
+// --- Static File Serving ---
+// Serve the main directory (for index.html, etc.)
 app.use(express.static(path.join(__dirname)));
+// **THE FIX**: Explicitly serve the 'graphics' directory
+app.use('/graphics', express.static(path.join(__dirname, 'graphics')));
+
+
 const wss = new WebSocketServer({ server });
 
 // --- Game Configuration ---
@@ -106,16 +113,10 @@ function gameLoop(gameId) {
 // --- Game Logic ---
 const getGridPos = (x, y) => ({ col: Math.floor(x / TILE_SIZE), row: Math.floor(y / TILE_SIZE) });
 
-/**
- * The definitive "Stuck on Bomb" fix.
- * This function checks for collisions but makes a special exception for the bomb
- * a player is currently standing on, allowing them to move off of it freely.
- */
 function checkCollision(game, player, x, y) {
     const pWidth = TILE_SIZE * 0.7;
     const pHeight = TILE_SIZE * 0.7;
 
-    // The corners of the player's potential future position.
     const futureCorners = [
         { x: x, y: y },
         { x: x + pWidth, y: y },
@@ -138,33 +139,21 @@ function checkCollision(game, player, x, y) {
         }
 
         if (tile === 3) { // It's a bomb tile
-            // --- The Fix ---
-            // Instead of checking a single point, we check if the player's current
-            // bounding box is already overlapping the bomb's tile.
-            // If it is, we allow them to move off it (exit).
-
-            // Bomb's rectangle
             const bombRect = { x: col * TILE_SIZE, y: row * TILE_SIZE, width: TILE_SIZE, height: TILE_SIZE };
-            // Player's current rectangle
             const playerRect = { x: player.x, y: player.y, width: pWidth, height: pHeight };
 
-            // Check for overlap (Axis-Aligned Bounding Box intersection)
             const isOverlapping = playerRect.x < bombRect.x + bombRect.width &&
                                   playerRect.x + playerRect.width > bombRect.x &&
                                   playerRect.y < bombRect.y + bombRect.height &&
                                   playerRect.y + playerRect.height > bombRect.y;
 
             if (isOverlapping) {
-                // Player is already on this bomb tile, so let them move away.
                 continue;
             } else {
-                // Player is trying to move onto a new bomb tile. Block it.
                 return true;
             }
         }
     }
-
-    // No collisions found.
     return false;
 }
 
@@ -182,7 +171,6 @@ function handlePlayerMovement(game) {
         const newX = player.x + dx;
         const newY = player.y + dy;
 
-        // Check each axis separately for smoother movement around corners
         if (!checkCollision(game, player, newX, player.y)) player.x = newX;
         if (!checkCollision(game, player, player.x, newY)) player.y = newY;
     });
